@@ -1,94 +1,97 @@
 # HOFO - Premium Wooden Products
 
-HOFO is a full-stack wooden products storefront with:
+HOFO is a full-stack ecommerce app for wooden products.
 
-- React + Vite frontend
-- Express + MongoDB backend
-- Admin panel for product management
+It includes:
+
+- Customer storefront (React + Vite)
+- Product API and order API (Express + MongoDB)
+- Admin panel for product and order management
+
+## Tech Stack
+
+- Frontend: React, Vite
+- Backend: Node.js, Express, MongoDB
+- Admin: React UI + admin API
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 18 or higher
 - npm
-- MongoDB (local or Atlas)
+- MongoDB (local or MongoDB Atlas)
 
-## 1) Install Dependencies
+## Quick Start (Recommended)
+
+### 1) Install dependencies
 
 ```bash
 npm install
 ```
 
-## 2) Configure Environment
-
-Create a `.env` file from `.env.example` and update values:
+### 2) Create environment file
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Required values:
+Update `.env` values if needed.
 
-- `MONGODB_URI` - MongoDB connection string
-- `ADMIN_API_KEY` - password used to log into the admin panel
-- `PORT` - backend API port (default: `5000`)
-- `ADMIN_PORT` - admin API port (default: `5001`)
-- `VITE_API_BASE_URL` - keep empty for local dev with Vite proxy
+Important variables:
 
-Default admin password in `.env.example`:
+- `MONGODB_URI`: MongoDB connection string
+- `ADMIN_API_KEY`: password for admin login
+- `PORT`: product API port (default `5000`)
+- `ADMIN_PORT`: admin API port (default `5001`)
+- `VITE_API_BASE_URL`: keep empty in local development (Vite proxy is used)
 
-- `admin@12345`
-
-## 3) Run Product Backend (MongoDB API)
-
-```bash
-npm run dev:server
-```
-
-Product backend runs on `http://localhost:5000`.
-
-Notes:
-
-- On startup, if the products collection is empty, seed products are inserted automatically.
-- Health check: `GET /api/health`
-
-## 4) Run Admin Backend
-
-In a second terminal:
-
-```bash
-npm run dev:admin-server
-```
-
-Admin backend runs on `http://localhost:5001`.
-
-Admin health check: `GET /api/admin/health`
-
-## 5) Run Frontend
-
-In a third terminal:
+### 3) Start everything
 
 ```bash
 npm run dev
 ```
 
-Frontend runs on `http://localhost:3000`.
+This starts:
 
-## 6) Admin Panel
+- Frontend at `http://localhost:3000`
+- Product API at `http://localhost:5000`
+- Admin API at `http://localhost:5001`
 
-Open:
+### 4) Open the app
 
-- `http://localhost:3000/admin`
+- Storefront: `http://localhost:3000`
+- Admin orders: `http://localhost:3000/admin`
+- Admin products: `http://localhost:3000/admin/products`
 
-Login password is the value of `ADMIN_API_KEY`.
+### 5) Login to admin
 
-If you used `.env.example` as-is, the password is:
+Use the value of `ADMIN_API_KEY` from your `.env` file.
+
+If you use `.env.example` without changes, the password is:
 
 - `admin@12345`
 
-From the admin panel, you can:
+## Useful Commands
 
-- Create products
-- Edit products
-- Delete products
+- `npm run dev`: run frontend + both backend servers together
+- `npm run dev:client`: run only frontend
+- `npm run dev:server`: run only product API
+- `npm run dev:admin-server`: run only admin API
+- `npm run build`: build frontend for production
+- `npm run preview`: preview production frontend build
+- `npm run lint`: run TypeScript check
 
-All product changes are saved in MongoDB.
+## Health Checks
+
+- Product API: `GET http://localhost:5000/api/health`
+- Admin API: `GET http://localhost:5001/api/admin/health`
+
+## Project Structure (Simplified)
+
+- `frontend/`: all frontend files (Vite app)
+- `backend/`: all backend code (routes, models, middleware, services)
+- `.env.example`: sample environment variables
+
+## Notes
+
+- On first backend start, if products collection is empty, seed products are inserted automatically.
+- Product changes from admin panel are stored in MongoDB.
