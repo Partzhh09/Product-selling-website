@@ -4,7 +4,6 @@ import express from "express";
 import mongoose from "mongoose";
 import { seedProducts } from "./data/seedProducts.js";
 import Product from "./models/Product.js";
-import adminRoutes from "./routes/admin.js";
 import productRoutes from "./routes/products.js";
 
 dotenv.config();
@@ -23,13 +22,12 @@ app.use(express.json({ limit: "1mb" }));
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
-    service: "hofo-backend",
+    service: "hofo-products-backend",
     uptime: Math.round(process.uptime())
   });
 });
 
 app.use("/api/products", productRoutes);
-app.use("/api/admin", adminRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found." });

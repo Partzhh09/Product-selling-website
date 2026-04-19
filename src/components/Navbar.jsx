@@ -11,7 +11,6 @@ const navLinks = [
   { name: "Custom Order", path: "/custom-order" },
   { name: "Factory", path: "/factory" },
   { name: "Journal", path: "/blog" },
-  { name: "Admin", path: "/admin" },
 ];
 
 export function Navbar() {

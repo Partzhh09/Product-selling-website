@@ -9,7 +9,7 @@ export const seedProducts = [
     mrp: 2499,
     discount: 24,
     images: [
-      "https://images.unsplash.com/photo-1593006526979-4f8f5c6dd6b1?q=80&w=2000&auto=format&fit=crop",
+      "https://images.unsplash.com/photo-1606312619070-d48b4c652a52?q=80&w=2400&h=1600&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1611486212557-88be5ff6f941?q=80&w=2000&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1584346133934-a3afd2a33c4c?q=80&w=2000&auto=format&fit=crop"
     ],

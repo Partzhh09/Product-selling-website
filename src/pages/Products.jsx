@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { Link, useSearchParams } from "react-router-dom";
 import { addToCart } from "@/lib/cart";
 import { getFallbackProducts, getProducts } from "@/lib/api";
+import { premiumWoodenImage } from "@/lib/defaultProducts";
 
 const filterBlocks = [
   {
@@ -84,6 +85,12 @@ function FilterPanel() {
       </div>
     </div>
   );
+}
+
+function getProductCoverImage(product) {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  const primaryImage = images.find((image) => typeof image === "string" && image.trim());
+  return primaryImage || premiumWoodenImage;
 }
 
 export function Products() {
@@ -155,11 +162,13 @@ export function Products() {
   };
 
   const handleAddToCart = (product) => {
+    const coverImage = getProductCoverImage(product);
+
     addToCart({
       id: product.id,
       name: product.name,
       price: product.price,
-      image: product.images[0],
+      image: coverImage,
       quantity: 1,
     });
 
@@ -319,93 +328,101 @@ export function Products() {
                 </button>
               </div>
             ) : (
-              filteredProducts.map((product, i) => (
-                <motion.article
-                  key={product.id}
-                  initial={{ opacity: 0, y: 24 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-80px" }}
-                  transition={{ delay: i * 0.04, duration: 0.45 }}
-                  className={cn(
-                    "group overflow-hidden rounded-[28px] border border-hofo-walnut/10 bg-white/80 shadow-[0_14px_28px_rgba(28,16,8,0.08)]",
-                    view === 'list' && "flex flex-col gap-5 p-4 sm:flex-row"
-                  )}
-                >
-                  <div
+              filteredProducts.map((product, i) => {
+                const coverImage = getProductCoverImage(product);
+
+                return (
+                  <motion.article
+                    key={product.id}
+                    initial={{ opacity: 0, y: 24 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-80px" }}
+                    transition={{ delay: i * 0.04, duration: 0.45 }}
                     className={cn(
-                      "relative overflow-hidden bg-hofo-beige",
-                      view === 'grid' ? "aspect-square" : "aspect-square w-full rounded-2xl sm:w-64 sm:shrink-0"
+                      "group overflow-hidden rounded-[28px] border border-hofo-walnut/10 bg-white/80 shadow-[0_14px_28px_rgba(28,16,8,0.08)]",
+                      view === 'list' && "flex flex-col gap-5 p-4 sm:flex-row"
                     )}
                   >
-                    <img
-                      src={product.images[0]}
-                      alt={product.name}
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
+                    <div
+                      className={cn(
+                        "relative overflow-hidden bg-hofo-beige",
+                        view === 'grid' ? "aspect-square" : "aspect-square w-full rounded-2xl sm:w-64 sm:shrink-0"
+                      )}
+                    >
+                      <img
+                        src={coverImage}
+                        alt={product.name}
+                        onError={(event) => {
+                          event.currentTarget.onerror = null;
+                          event.currentTarget.src = premiumWoodenImage;
+                        }}
+                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                      />
 
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/0 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/0 to-transparent" />
 
-                    <div className="absolute left-4 top-4 rounded-full bg-white/88 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-hofo-teak">
-                      {product.discount}% Off
+                      <div className="absolute left-4 top-4 rounded-full bg-white/88 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-hofo-teak">
+                        {product.discount}% Off
+                      </div>
+
+                      <div className="absolute right-4 top-4 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+                        <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-hofo-walnut-dark shadow-sm hover:text-red-500">
+                          <Heart className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="absolute right-4 top-4 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
-                      <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-hofo-walnut-dark shadow-sm hover:text-red-500">
-                        <Heart className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                    <div
+                      className={cn(
+                        "flex flex-col",
+                        view === 'grid' ? "p-5" : "flex-1 justify-center py-2 pr-4"
+                      )}
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hofo-walnut/55">
+                        {product.category} • {product.wood}
+                      </p>
 
-                  <div
-                    className={cn(
-                      "flex flex-col",
-                      view === 'grid' ? "p-5" : "flex-1 justify-center py-2 pr-4"
-                    )}
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hofo-walnut/55">
-                      {product.category} • {product.wood}
-                    </p>
-
-                    <Link to={`/products/${product.id}`}>
-                      <h3 className="mt-2 font-serif text-2xl leading-tight text-hofo-walnut-dark group-hover:text-hofo-teak">
-                        {product.name}
-                      </h3>
-                    </Link>
-
-                    <p className="mt-3 text-sm leading-relaxed text-hofo-walnut/72">
-                      {product.desc} {product.story}
-                    </p>
-
-                    <div className="mt-4 flex items-end gap-3">
-                      <span className="text-2xl font-semibold text-hofo-walnut-dark">Rs.{product.price}</span>
-                      <span className="pb-0.5 text-sm text-hofo-walnut/42 line-through">Rs.{product.mrp}</span>
-                    </div>
-
-                    <div className="mt-6 flex items-center gap-3">
-                      <Link
-                        to={`/products/${product.id}`}
-                        className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-hofo-walnut-dark px-4 text-xs font-semibold uppercase tracking-[0.14em] text-hofo-cream hover:bg-hofo-teak"
-                      >
-                        View Details
+                      <Link to={`/products/${product.id}`}>
+                        <h3 className="mt-2 font-serif text-2xl leading-tight text-hofo-walnut-dark group-hover:text-hofo-teak">
+                          {product.name}
+                        </h3>
                       </Link>
 
-                      <button
-                        onClick={() => handleAddToCart(product)}
-                        className={cn(
-                          "flex h-11 w-11 items-center justify-center rounded-full border text-hofo-walnut-dark",
-                          lastAddedProductId === product.id
-                            ? "border-hofo-teak bg-hofo-teak text-white"
-                            : "border-hofo-walnut/18 hover:bg-hofo-beige/60"
-                        )}
-                        type="button"
-                        aria-label={`Add ${product.name} to cart`}
-                      >
-                        <ShoppingCart className="h-4 w-4" />
-                      </button>
+                      <p className="mt-3 text-sm leading-relaxed text-hofo-walnut/72">
+                        {product.desc} {product.story}
+                      </p>
+
+                      <div className="mt-4 flex items-end gap-3">
+                        <span className="text-2xl font-semibold text-hofo-walnut-dark">Rs.{product.price}</span>
+                        <span className="pb-0.5 text-sm text-hofo-walnut/42 line-through">Rs.{product.mrp}</span>
+                      </div>
+
+                      <div className="mt-6 flex items-center gap-3">
+                        <Link
+                          to={`/products/${product.id}`}
+                          className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-hofo-walnut-dark px-4 text-xs font-semibold uppercase tracking-[0.14em] text-hofo-cream hover:bg-hofo-teak"
+                        >
+                          View Details
+                        </Link>
+
+                        <button
+                          onClick={() => handleAddToCart(product)}
+                          className={cn(
+                            "flex h-11 w-11 items-center justify-center rounded-full border text-hofo-walnut-dark",
+                            lastAddedProductId === product.id
+                              ? "border-hofo-teak bg-hofo-teak text-white"
+                              : "border-hofo-walnut/18 hover:bg-hofo-beige/60"
+                          )}
+                          type="button"
+                          aria-label={`Add ${product.name} to cart`}
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.article>
-              ))
+                  </motion.article>
+                );
+              })
             )}
           </div>
 

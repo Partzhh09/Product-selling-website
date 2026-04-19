@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const DEFAULT_IMAGE =
-  "https://images.unsplash.com/photo-1593006526979-4f8f5c6dd6b1?q=80&w=2000&auto=format&fit=crop";
+  "https://images.unsplash.com/photo-1606312619070-d48b4c652a52?q=80&w=2400&h=1600&auto=format&fit=crop";
 
 const faqSchema = new mongoose.Schema(
   {

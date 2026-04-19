@@ -2,15 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
+  BarChart3,
+  Boxes,
+  Copy,
+  Filter,
   LockKeyhole,
   LogOut,
   Pencil,
   Plus,
+  RefreshCcw,
   Save,
+  Search,
   Shield,
   Trash2,
   X
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   adminLogin,
   clearStoredAdminToken,
@@ -21,6 +28,9 @@ import {
   setStoredAdminToken,
   updateAdminProduct
 } from "@/lib/api";
+import { premiumWoodenImage } from "@/lib/defaultProducts";
+
+const FAQ_SEPARATOR = "::";
 
 const emptyFormState = {
   name: "",
@@ -30,30 +40,155 @@ const emptyFormState = {
   story: "",
   price: "",
   mrp: "",
-  imageUrl: ""
+  discount: "",
+  imageUrl: premiumWoodenImage,
+  sizes: "Standard",
+  finishes: "Natural Oil",
+  specsText: "Material: Solid Teak Wood\nFinish: Food-safe Mineral Oil",
+  faqsText: "How do I clean this product? :: Wipe with a damp cloth and dry immediately."
 };
 
-function parseImages(rawImageText) {
-  return rawImageText
+function parseList(rawValue) {
+  return String(rawValue || "")
     .split(/[\n,]/g)
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
+function parseSpecsText(rawSpecs) {
+  const specs = {};
+
+  String(rawSpecs || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const separatorIndex = line.indexOf(":");
+
+      if (separatorIndex === -1) {
+        return;
+      }
+
+      const key = line.slice(0, separatorIndex).trim();
+      const value = line.slice(separatorIndex + 1).trim();
+
+      if (key && value) {
+        specs[key] = value;
+      }
+    });
+
+  return specs;
+}
+
+function parseFaqsText(rawFaqs) {
+  return String(rawFaqs || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separatorIndex = line.indexOf(FAQ_SEPARATOR);
+
+      if (separatorIndex === -1) {
+        return null;
+      }
+
+      const question = line.slice(0, separatorIndex).trim();
+      const answer = line.slice(separatorIndex + FAQ_SEPARATOR.length).trim();
+
+      if (!question || !answer) {
+        return null;
+      }
+
+      return { q: question, a: answer };
+    })
+    .filter(Boolean);
+}
+
+function formatSpecsText(specs) {
+  if (!specs || typeof specs !== "object" || Array.isArray(specs)) {
+    return "";
+  }
+
+  return Object.entries(specs)
+    .map(([key, value]) => `${key}: ${String(value ?? "").trim()}`)
+    .filter((line) => line !== ":")
+    .join("\n");
+}
+
+function formatFaqsText(faqs) {
+  if (!Array.isArray(faqs)) {
+    return "";
+  }
+
+  return faqs
+    .map((faq) => {
+      const question = typeof faq?.q === "string" ? faq.q.trim() : "";
+      const answer = typeof faq?.a === "string" ? faq.a.trim() : "";
+
+      if (!question || !answer) {
+        return "";
+      }
+
+      return `${question} ${FAQ_SEPARATOR} ${answer}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function toFormState(product) {
+  const images = Array.isArray(product?.images) && product.images.length > 0
+    ? product.images
+    : [premiumWoodenImage];
+
+  const sizeOptions = Array.isArray(product?.variants?.size) ? product.variants.size : ["Standard"];
+  const finishOptions = Array.isArray(product?.variants?.finish)
+    ? product.variants.finish
+    : ["Natural Oil"];
+
+  return {
+    name: String(product?.name || ""),
+    desc: String(product?.desc || ""),
+    category: String(product?.category || "Kitchenware"),
+    wood: String(product?.wood || "Teak"),
+    story: String(product?.story || ""),
+    price: product?.price != null ? String(product.price) : "",
+    mrp: product?.mrp != null ? String(product.mrp) : "",
+    discount: product?.discount != null ? String(product.discount) : "",
+    imageUrl: images.join("\n"),
+    sizes: sizeOptions.join(", "),
+    finishes: finishOptions.join(", "),
+    specsText: formatSpecsText(product?.specs),
+    faqsText: formatFaqsText(product?.faqs)
+  };
+}
+
 function toPayload(form) {
   const price = Number(form.price);
   const mrp = Number(form.mrp);
+  const discount = Number(form.discount);
 
-  return {
+  const payload = {
     name: form.name.trim(),
     desc: form.desc.trim(),
     category: form.category.trim() || "Kitchenware",
     wood: form.wood.trim() || "Teak",
     story: form.story.trim(),
-    price: Number.isFinite(price) ? price : 0,
-    mrp: Number.isFinite(mrp) ? mrp : 0,
-    images: parseImages(form.imageUrl)
+    price: Number.isFinite(price) ? Math.max(0, Math.round(price)) : 0,
+    mrp: Number.isFinite(mrp) ? Math.max(0, Math.round(mrp)) : 0,
+    images: parseList(form.imageUrl),
+    variants: {
+      size: parseList(form.sizes),
+      finish: parseList(form.finishes)
+    },
+    specs: parseSpecsText(form.specsText),
+    faqs: parseFaqsText(form.faqsText)
   };
+
+  if (Number.isFinite(discount) && discount >= 0) {
+    payload.discount = Math.round(discount);
+  }
+
+  return payload;
 }
 
 export function AdminPanel() {
@@ -70,14 +205,99 @@ export function AdminPanel() {
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState(emptyFormState);
 
-  const totalProducts = useMemo(() => products.length, [products]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("newest");
 
-  const loadProducts = async () => {
+  const availableCategories = useMemo(() => {
+    const categories = Array.from(
+      new Set(
+        products
+          .map((item) => String(item.category || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    return ["All", ...categories];
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    const list = products.filter((product) => {
+      if (categoryFilter !== "All" && product.category !== categoryFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return [product.name, product.desc, product.category, product.wood, product.story]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    const sorted = [...list];
+
+    sorted.sort((a, b) => {
+      if (sortBy === "name") {
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      }
+
+      if (sortBy === "price-low") {
+        return Number(a.price || 0) - Number(b.price || 0);
+      }
+
+      if (sortBy === "price-high") {
+        return Number(b.price || 0) - Number(a.price || 0);
+      }
+
+      if (sortBy === "discount-high") {
+        return Number(b.discount || 0) - Number(a.discount || 0);
+      }
+
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return sorted;
+  }, [products, searchTerm, categoryFilter, sortBy]);
+
+  const dashboardStats = useMemo(() => {
+    const totalProducts = products.length;
+    const categoryCount = new Set(products.map((item) => item.category).filter(Boolean)).size;
+    const avgPrice = totalProducts
+      ? Math.round(products.reduce((sum, item) => sum + Number(item.price || 0), 0) / totalProducts)
+      : 0;
+    const avgDiscount = totalProducts
+      ? Math.round(products.reduce((sum, item) => sum + Number(item.discount || 0), 0) / totalProducts)
+      : 0;
+
+    return {
+      totalProducts,
+      categoryCount,
+      avgPrice,
+      avgDiscount
+    };
+  }, [products]);
+
+  const previewImage = useMemo(() => {
+    const images = parseList(form.imageUrl);
+    return images[0] || premiumWoodenImage;
+  }, [form.imageUrl]);
+
+  const loadProducts = async (withLoader = true) => {
     if (!token) {
       return;
     }
 
-    setLoadingProducts(true);
+    if (withLoader) {
+      setLoadingProducts(true);
+    }
+
     setErrorMessage("");
 
     try {
@@ -86,7 +306,9 @@ export function AdminPanel() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to load products.");
     } finally {
-      setLoadingProducts(false);
+      if (withLoader) {
+        setLoadingProducts(false);
+      }
     }
   };
 
@@ -107,7 +329,7 @@ export function AdminPanel() {
     setStatusMessage("");
 
     if (!adminSecret.trim()) {
-      setErrorMessage("Enter your admin secret to continue.");
+      setErrorMessage("Enter your admin password to continue.");
       return;
     }
 
@@ -128,6 +350,9 @@ export function AdminPanel() {
     setEditingId("");
     setProducts([]);
     setForm(emptyFormState);
+    setSearchTerm("");
+    setCategoryFilter("All");
+    setSortBy("newest");
     setStatusMessage("Admin session ended.");
   };
 
@@ -142,18 +367,17 @@ export function AdminPanel() {
 
   const handleStartEdit = (product) => {
     setEditingId(product.id);
-    setForm({
-      name: product.name,
-      desc: product.desc,
-      category: product.category,
-      wood: product.wood,
-      story: product.story,
-      price: String(product.price),
-      mrp: String(product.mrp),
-      imageUrl: (product.images || []).join("\n")
-    });
-
+    setForm(toFormState(product));
     setStatusMessage(`Editing ${product.name}`);
+    setErrorMessage("");
+  };
+
+  const handleDuplicate = (product) => {
+    const nextForm = toFormState(product);
+    nextForm.name = `${nextForm.name} Copy`;
+    setEditingId("");
+    setForm(nextForm);
+    setStatusMessage(`Duplicating ${product.name}`);
     setErrorMessage("");
   };
 
@@ -179,6 +403,10 @@ export function AdminPanel() {
       return;
     }
 
+    if (payload.mrp < payload.price) {
+      payload.mrp = payload.price;
+    }
+
     setSavingProduct(true);
 
     try {
@@ -191,7 +419,7 @@ export function AdminPanel() {
       }
 
       resetForm();
-      await loadProducts();
+      await loadProducts(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to save product.");
     } finally {
@@ -199,7 +427,12 @@ export function AdminPanel() {
     }
   };
 
-  const handleDelete = async (productId) => {
+  const handleDelete = async (productId, productName) => {
+    const confirmed = window.confirm(`Delete ${productName}? This action cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
     setErrorMessage("");
     setStatusMessage("");
     setDeletingProductId(productId);
@@ -218,6 +451,12 @@ export function AdminPanel() {
     }
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setCategoryFilter("All");
+    setSortBy("newest");
+  };
+
   if (!token) {
     return (
       <div className="pb-24 pt-8">
@@ -228,20 +467,20 @@ export function AdminPanel() {
               Sign in to Admin Panel
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-hofo-walnut/72">
-              Use your backend admin secret to manage products in MongoDB.
+              Use your configured admin password to access full product controls.
             </p>
 
             <form onSubmit={handleLogin} className="mt-8 space-y-4">
               <label className="block">
                 <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-hofo-walnut/65">
-                  Admin Secret
+                  Admin Password
                 </span>
                 <div className="relative">
                   <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-hofo-walnut/45" />
                   <input
                     value={adminSecret}
                     onChange={(event) => setAdminSecret(event.target.value)}
-                    placeholder="Enter ADMIN_API_KEY"
+                    placeholder="Enter admin password"
                     className="h-12 w-full rounded-2xl border border-hofo-walnut/15 bg-white pl-11 pr-4 text-sm text-hofo-walnut-dark placeholder:text-hofo-walnut/35 focus:border-hofo-teak focus:outline-none"
                   />
                 </div>
@@ -275,23 +514,37 @@ export function AdminPanel() {
             <div>
               <p className="hofo-eyebrow">Admin Dashboard</p>
               <h1 className="mt-2 font-serif text-4xl leading-none text-hofo-walnut-dark md:text-6xl">
-                Product Control Room
+                Full Catalog Control
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-hofo-walnut/72 md:text-base">
-                Create, update, and remove wooden products directly in MongoDB.
+                Manage pricing, variants, specifications, FAQs, and media in one control room.
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl border border-hofo-walnut/14 bg-white/70 px-4 py-2 text-sm font-semibold text-hofo-walnut-dark">
-                {totalProducts} Products
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadProducts()}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-hofo-walnut/15 bg-white/80 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+              >
+                <RefreshCcw className="h-3.5 w-3.5" />
+                Refresh
+              </button>
+
+              <Link
+                to="/products"
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-hofo-walnut/15 bg-white/80 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                View Storefront
+              </Link>
+
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-hofo-walnut/15 bg-white/80 px-4 text-xs font-semibold uppercase tracking-[0.14em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-hofo-walnut/15 bg-white/80 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-3.5 w-3.5" />
                 Logout
               </button>
             </div>
@@ -299,11 +552,33 @@ export function AdminPanel() {
         </div>
       </section>
 
-      <section className="section-shell mt-10 grid gap-8 lg:grid-cols-[400px_1fr]">
-        <aside className="h-max rounded-3xl border border-hofo-walnut/10 bg-white/82 p-6 shadow-[0_18px_35px_rgba(30,18,10,0.1)] lg:sticky lg:top-28">
+      <section className="section-shell mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Total Products</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.totalProducts}</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Categories</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.categoryCount}</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Avg Price</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">Rs.{dashboardStats.avgPrice.toLocaleString("en-IN")}</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Avg Discount</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.avgDiscount}%</p>
+        </article>
+      </section>
+
+      <section className="section-shell mt-10 grid gap-8 xl:grid-cols-[430px_1fr]">
+        <aside className="h-max rounded-3xl border border-hofo-walnut/10 bg-white/82 p-6 shadow-[0_18px_35px_rgba(30,18,10,0.1)] xl:sticky xl:top-28">
           <div className="mb-6 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-hofo-walnut/58">
-              {editingId ? "Edit Product" : "Add Product"}
+              {editingId ? "Edit Product" : "Create Product"}
             </p>
             {editingId && (
               <button
@@ -366,7 +641,7 @@ export function AdminPanel() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
                   Price
@@ -389,6 +664,19 @@ export function AdminPanel() {
                   min="0"
                   value={form.mrp}
                   onChange={(event) => handleFieldChange("mrp", event.target.value)}
+                  className="h-11 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 text-sm text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
+                  Discount %
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.discount}
+                  onChange={(event) => handleFieldChange("discount", event.target.value)}
                   className="h-11 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 text-sm text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
                 />
               </label>
@@ -418,6 +706,56 @@ export function AdminPanel() {
               />
             </label>
 
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
+                  Sizes
+                </span>
+                <textarea
+                  value={form.sizes}
+                  onChange={(event) => handleFieldChange("sizes", event.target.value)}
+                  className="min-h-16 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 py-2 text-xs text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                  placeholder="Small, Medium, Large"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
+                  Finishes
+                </span>
+                <textarea
+                  value={form.finishes}
+                  onChange={(event) => handleFieldChange("finishes", event.target.value)}
+                  className="min-h-16 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 py-2 text-xs text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                  placeholder="Natural Oil, Matte"
+                />
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
+                Specs (one per line)
+              </span>
+              <textarea
+                value={form.specsText}
+                onChange={(event) => handleFieldChange("specsText", event.target.value)}
+                className="min-h-20 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 py-2 text-xs text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                placeholder="Material: Solid Teak Wood"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/58">
+                FAQs (Question :: Answer)
+              </span>
+              <textarea
+                value={form.faqsText}
+                onChange={(event) => handleFieldChange("faqsText", event.target.value)}
+                className="min-h-20 w-full rounded-xl border border-hofo-walnut/15 bg-white px-3 py-2 text-xs text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                placeholder="Is this food safe? :: Yes, finished with food-safe oils."
+              />
+            </label>
+
             <button
               type="submit"
               disabled={savingProduct}
@@ -426,15 +764,34 @@ export function AdminPanel() {
               {editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               {savingProduct ? "Saving..." : editingId ? "Update Product" : "Create Product"}
             </button>
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-hofo-walnut/18 bg-white px-6 text-xs font-semibold uppercase tracking-[0.14em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+              >
+                <X className="h-4 w-4" />
+                Switch to Create Mode
+              </button>
+            )}
           </form>
 
-          <Link
-            to="/products"
-            className="mt-5 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-hofo-teak hover:text-hofo-walnut-dark"
-          >
-            <Shield className="h-4 w-4" />
-            View Storefront
-          </Link>
+          <article className="mt-6 overflow-hidden rounded-2xl border border-hofo-walnut/12 bg-white/92">
+            <img src={previewImage} alt="Live product preview" className="aspect-[5/3] w-full object-cover" />
+            <div className="space-y-1 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-hofo-walnut/58">
+                Live Preview
+              </p>
+              <h3 className="font-serif text-2xl text-hofo-walnut-dark">{form.name || "Product name"}</h3>
+              <p className="text-xs uppercase tracking-[0.12em] text-hofo-walnut/58">
+                {(form.category || "Category").trim()} | {(form.wood || "Wood").trim()}
+              </p>
+              <p className="text-sm font-semibold text-hofo-walnut-dark">
+                Rs.{Number(form.price || 0).toLocaleString("en-IN")} | MRP Rs.{Number(form.mrp || 0).toLocaleString("en-IN")}
+              </p>
+            </div>
+          </article>
         </aside>
 
         <div className="space-y-4">
@@ -450,60 +807,153 @@ export function AdminPanel() {
             </p>
           )}
 
+          <div className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-4 shadow-[0_12px_30px_rgba(30,18,10,0.07)] md:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+                <label className="relative block w-full sm:max-w-[260px]">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-hofo-walnut/45" />
+                  <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Search products"
+                    className="h-10 w-full rounded-xl border border-hofo-walnut/15 bg-white pl-9 pr-3 text-sm text-hofo-walnut-dark placeholder:text-hofo-walnut/35 focus:border-hofo-teak focus:outline-none"
+                  />
+                </label>
+
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  className="h-10 rounded-xl border border-hofo-walnut/15 bg-white px-3 text-sm text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                >
+                  {availableCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value)}
+                  className="h-10 rounded-xl border border-hofo-walnut/15 bg-white px-3 text-sm text-hofo-walnut-dark focus:border-hofo-teak focus:outline-none"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="name">Name</option>
+                  <option value="price-low">Price: Low to High</option>
+                  <option value="price-high">Price: High to Low</option>
+                  <option value="discount-high">Discount: High to Low</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-10 items-center rounded-full border border-hofo-walnut/12 bg-white px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut/65">
+                  {filteredProducts.length} Item{filteredProducts.length === 1 ? "" : "s"}
+                </span>
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex h-10 items-center gap-1 rounded-full border border-hofo-walnut/15 bg-white px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
           {loadingProducts ? (
             <div className="rounded-3xl border border-hofo-walnut/10 bg-white/80 p-8 text-center text-sm text-hofo-walnut/70">
               Loading products...
             </div>
-          ) : products.length === 0 ? (
+          ) : filteredProducts.length === 0 ? (
             <div className="rounded-3xl border border-hofo-walnut/10 bg-white/80 p-8 text-center text-sm text-hofo-walnut/70">
-              No products found. Add your first product from the form.
+              No products match your filters. Try a broader search.
             </div>
           ) : (
-            products.map((product) => (
-              <article
-                key={product.id}
-                className="overflow-hidden rounded-3xl border border-hofo-walnut/10 bg-white/82 shadow-[0_14px_28px_rgba(28,16,8,0.08)]"
-              >
-                <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
-                  <img
-                    src={product.images?.[0]}
-                    alt={product.name}
-                    className="h-24 w-full rounded-2xl object-cover sm:w-28"
-                  />
+            <div className="grid gap-4">
+              {filteredProducts.map((product) => {
+                const specsCount = product?.specs && typeof product.specs === "object"
+                  ? Object.keys(product.specs).length
+                  : 0;
+                const faqCount = Array.isArray(product?.faqs) ? product.faqs.length : 0;
 
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">
-                      {product.category} | {product.wood}
-                    </p>
-                    <h3 className="mt-1 truncate font-serif text-2xl text-hofo-walnut-dark">{product.name}</h3>
-                    <p className="mt-1 text-sm text-hofo-walnut/70">
-                      Rs.{product.price.toLocaleString("en-IN")} | MRP Rs.{product.mrp.toLocaleString("en-IN")}
-                    </p>
-                  </div>
+                return (
+                  <article
+                    key={product.id}
+                    className={cn(
+                      "overflow-hidden rounded-3xl border border-hofo-walnut/10 bg-white/82 shadow-[0_14px_28px_rgba(28,16,8,0.08)]",
+                      editingId === product.id && "ring-2 ring-hofo-teak/35"
+                    )}
+                  >
+                    <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
+                      <img
+                        src={product.images?.[0] || premiumWoodenImage}
+                        alt={product.name}
+                        className="h-24 w-full rounded-2xl object-cover sm:w-28"
+                      />
 
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
-                    <button
-                      type="button"
-                      onClick={() => handleStartEdit(product)}
-                      className="inline-flex h-10 items-center gap-1 rounded-full border border-hofo-walnut/15 bg-white px-3 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">
+                          {product.category} | {product.wood}
+                        </p>
+                        <h3 className="mt-1 truncate font-serif text-2xl text-hofo-walnut-dark">{product.name}</h3>
+                        <p className="mt-1 text-sm text-hofo-walnut/70">{product.desc}</p>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(product.id)}
-                      disabled={deletingProductId === product.id}
-                      className="inline-flex h-10 items-center gap-1 rounded-full border border-red-200 bg-white px-3 text-xs font-semibold uppercase tracking-[0.12em] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {deletingProductId === product.id ? "Deleting" : "Delete"}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-hofo-walnut/12 bg-white px-2.5 py-1 text-[11px] font-medium text-hofo-walnut/72">
+                            Rs.{Number(product.price || 0).toLocaleString("en-IN")}
+                          </span>
+                          <span className="rounded-full border border-hofo-walnut/12 bg-white px-2.5 py-1 text-[11px] font-medium text-hofo-walnut/72">
+                            MRP Rs.{Number(product.mrp || 0).toLocaleString("en-IN")}
+                          </span>
+                          <span className="rounded-full border border-hofo-walnut/12 bg-white px-2.5 py-1 text-[11px] font-medium text-hofo-walnut/72">
+                            {Number(product.discount || 0)}% Off
+                          </span>
+                          <span className="rounded-full border border-hofo-walnut/12 bg-white px-2.5 py-1 text-[11px] font-medium text-hofo-walnut/72">
+                            <Boxes className="mr-1 inline h-3 w-3" />
+                            {Array.isArray(product.images) ? product.images.length : 0} images
+                          </span>
+                          <span className="rounded-full border border-hofo-walnut/12 bg-white px-2.5 py-1 text-[11px] font-medium text-hofo-walnut/72">
+                            <BarChart3 className="mr-1 inline h-3 w-3" />
+                            {specsCount} specs | {faqCount} FAQs
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(product)}
+                          className="inline-flex h-10 items-center gap-1 rounded-full border border-hofo-walnut/15 bg-white px-3 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicate(product)}
+                          className="inline-flex h-10 items-center gap-1 rounded-full border border-hofo-walnut/15 bg-white px-3 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Clone
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(product.id, product.name)}
+                          disabled={deletingProductId === product.id}
+                          className="inline-flex h-10 items-center gap-1 rounded-full border border-red-200 bg-white px-3 text-xs font-semibold uppercase tracking-[0.12em] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingProductId === product.id ? "Deleting" : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           )}
         </div>
       </section>
