@@ -7,6 +7,21 @@ function buildUrl(path) {
   return `${API_BASE_URL}${path}`;
 }
 
+function toQueryString(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    query.set(key, String(value));
+  });
+
+  const serialized = query.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
 async function request(path, options = {}) {
   const headers = {
     ...(options.headers || {})
@@ -99,6 +114,45 @@ export async function getProductById(id) {
   return normalizeProduct(data?.item, String(id));
 }
 
+export async function placeOrder(orderData) {
+  const data = await request("/api/orders", {
+    method: "POST",
+    body: JSON.stringify(orderData)
+  });
+
+  return data?.order || null;
+}
+
+export async function signupUser(payload) {
+  const data = await request("/api/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  return data?.user || null;
+}
+
+export async function loginUser(payload) {
+  const data = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  return {
+    user: data?.user || null,
+    token: String(data?.token || "")
+  };
+}
+
+export async function updateUserProfile(userId, payload) {
+  const data = await request(`/api/auth/profile/${encodeURIComponent(String(userId))}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+
+  return data?.user || null;
+}
+
 export async function adminLogin(secret) {
   const data = await request("/api/admin/login", {
     method: "POST",
@@ -141,4 +195,88 @@ export async function deleteAdminProduct(id, token) {
   });
 
   return true;
+}
+
+export async function getAdminOrders(token) {
+  const data = await request("/api/admin/orders", {
+    method: "GET",
+    headers: getAdminHeaders(token)
+  });
+
+  return Array.isArray(data?.items) ? data.items : [];
+}
+
+export async function getAdminOrderFeed(token, params = {}) {
+  const query = toQueryString(params);
+  const data = await request(`/api/admin/orders${query}`, {
+    method: "GET",
+    headers: getAdminHeaders(token)
+  });
+
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    pagination: data?.pagination || null
+  };
+}
+
+export async function getAdminOrderById(id, token) {
+  const data = await request(`/api/admin/orders/${encodeURIComponent(String(id))}`, {
+    method: "GET",
+    headers: getAdminHeaders(token)
+  });
+
+  return data?.order || null;
+}
+
+export async function updateAdminOrderStatus(id, payload, token) {
+  const data = await request(`/api/admin/orders/${encodeURIComponent(String(id))}/status`, {
+    method: "PUT",
+    headers: getAdminHeaders(token),
+    body: JSON.stringify(payload)
+  });
+
+  return data?.order || null;
+}
+
+export async function updateAdminOrder(id, payload, token) {
+  const data = await request(`/api/admin/orders/${encodeURIComponent(String(id))}`, {
+    method: "PUT",
+    headers: getAdminHeaders(token),
+    body: JSON.stringify(payload)
+  });
+
+  return data?.order || null;
+}
+
+export function getAdminInvoiceUrl(id) {
+  return buildUrl(`/api/admin/orders/${encodeURIComponent(String(id))}/invoice`);
+}
+
+export async function getMyOrders(params = {}) {
+  const query = toQueryString(params);
+  const data = await request(`/api/orders/my${query}`, {
+    method: "GET"
+  });
+
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    pagination: data?.pagination || null
+  };
+}
+
+export async function getMyOrderById(orderId, params = {}) {
+  const query = toQueryString(params);
+  const data = await request(`/api/orders/${encodeURIComponent(String(orderId))}${query}`, {
+    method: "GET"
+  });
+
+  return {
+    order: data?.order || null,
+    tracking: data?.tracking || null
+  };
+}
+
+export function getMyInvoiceUrl(orderId, params = {}) {
+  const query = toQueryString(params);
+  return buildUrl(`/api/orders/${encodeURIComponent(String(orderId))}/invoice${query}`);
 }

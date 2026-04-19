@@ -2,8 +2,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
+import authRoutes from "./routes/auth.js";
 import { seedProducts } from "./data/seedProducts.js";
 import Product from "./models/Product.js";
+import orderRoutes from "./routes/orders.js";
 import productRoutes from "./routes/products.js";
 
 dotenv.config();
@@ -28,6 +30,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/products", productRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/auth", authRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found." });

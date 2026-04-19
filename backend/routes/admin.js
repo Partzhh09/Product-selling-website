@@ -1,7 +1,21 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { generateInvoicePdf } from "../services/invoiceService.js";
+import { notifyOrderStatusChange } from "../services/notificationService.js";
+import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
+import {
+  canTransition,
+  createStatusTimelineEntry,
+  getStatusFromAction,
+  normalizeOrderStatus,
+  normalizePaymentMethod,
+  normalizePaymentStatus,
+  ORDER_STATUS_VALUES,
+  PAYMENT_STATUS_VALUES,
+  statusLabel
+} from "../utils/orderWorkflow.js";
 
 const router = Router();
 
@@ -19,6 +33,177 @@ function parseString(value) {
 function parseNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizePhone(value) {
+  return parseString(value).replace(/\D/g, "");
+}
+
+function parseDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseOrderItems(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("At least one item is required.");
+  }
+
+  const items = value
+    .map((item) => {
+      const name = parseString(item?.name);
+      const productId = parseString(item?.productId || item?.id);
+      const image = parseString(item?.image);
+      const qty = Number.parseInt(String(item?.qty ?? item?.quantity), 10);
+      const price = parseNumber(item?.price);
+
+      if (!name || !Number.isFinite(qty) || qty <= 0 || price === null || price < 0) {
+        return null;
+      }
+
+      return {
+        productId,
+        name,
+        image,
+        qty,
+        quantity: qty,
+        price: Math.round(price),
+        lineTotal: Math.round(price * qty)
+      };
+    })
+    .filter(Boolean);
+
+  if (items.length === 0) {
+    throw new Error("At least one valid order item is required.");
+  }
+
+  return items;
+}
+
+function computeOrderTotals(items, providedShipping) {
+  const subtotal = items.reduce((sum, item) => sum + Number(item?.lineTotal || 0), 0);
+
+  const shippingAmount = Number.isFinite(providedShipping)
+    ? Math.max(0, Math.round(providedShipping))
+    : subtotal === 0
+      ? 0
+      : subtotal >= 5000
+        ? 0
+        : 299;
+
+  return {
+    subtotal,
+    shippingAmount,
+    totalAmount: subtotal + shippingAmount
+  };
+}
+
+async function findOrderByIdentifier(identifier) {
+  const value = parseString(identifier);
+
+  if (!value) {
+    return null;
+  }
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    const byId = await Order.findById(value);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  return Order.findOne({
+    $or: [{ orderId: value }, { orderNumber: value }]
+  });
+}
+
+function buildOrderSearchQuery(params) {
+  const statusRaw = parseString(params.status).toLowerCase();
+  const delayed = parseString(params.delayed).toLowerCase() === "true";
+  const paymentStatusRaw = parseString(params.paymentStatus).toUpperCase();
+  const search = parseString(params.q || params.search);
+
+  const query = {};
+
+  if (statusRaw === "pending") {
+    query.orderStatus = {
+      $in: ["placed", "confirmed", "packed", "shipped", "out_for_delivery"]
+    };
+  } else if (statusRaw && statusRaw !== "all") {
+    const normalizedStatus = normalizeOrderStatus(statusRaw, "");
+    if (normalizedStatus) {
+      query.orderStatus = normalizedStatus;
+    }
+  }
+
+  if (paymentStatusRaw && PAYMENT_STATUS_VALUES.includes(paymentStatusRaw)) {
+    query.paymentStatus = paymentStatusRaw;
+  }
+
+  if (delayed) {
+    query.expectedDeliveryAt = { $lt: new Date() };
+
+    if (!query.orderStatus) {
+      query.orderStatus = { $nin: ["delivered", "cancelled"] };
+    }
+  }
+
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), "i");
+    query.$or = [
+      { orderId: regex },
+      { orderNumber: regex },
+      { customerName: regex },
+      { phone: regex }
+    ];
+  }
+
+  return query;
+}
+
+function listAllowedTransitions(status) {
+  const current = normalizeOrderStatus(status);
+
+  if (current === "delivered" || current === "cancelled") {
+    return [];
+  }
+
+  const transitions = [];
+
+  if (current === "placed") {
+    transitions.push("confirmed", "cancelled");
+  }
+
+  if (current === "confirmed") {
+    transitions.push("packed", "cancelled");
+  }
+
+  if (current === "packed") {
+    transitions.push("shipped", "cancelled");
+  }
+
+  if (current === "shipped") {
+    transitions.push("out_for_delivery", "cancelled");
+  }
+
+  if (current === "out_for_delivery") {
+    transitions.push("delivered", "cancelled");
+  }
+
+  return transitions;
 }
 
 function parseStringArray(value) {
@@ -165,6 +350,249 @@ router.post("/login", (req, res) => {
       role: "admin"
     }
   });
+});
+
+router.get("/orders", requireAdminAuth, async (req, res, next) => {
+  try {
+    const page = parsePositiveInteger(req.query.page, 1);
+    const limit = Math.min(parsePositiveInteger(req.query.limit, 12), 60);
+    const skip = (page - 1) * limit;
+    const query = buildOrderSearchQuery(req.query || {});
+
+    const [items, total] = await Promise.all([
+      Order.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Order.countDocuments(query)
+    ]);
+
+    return res.json({
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit))
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/orders/:id", requireAdminAuth, async (req, res, next) => {
+  try {
+    const order = await findOrderByIdentifier(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    return res.json({ order });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put("/orders/:id/status", requireAdminAuth, async (req, res, next) => {
+  try {
+    const order = await findOrderByIdentifier(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    const action = parseString(req.body?.action);
+    const explicitStatus = parseString(req.body?.orderStatus);
+
+    const currentStatus = normalizeOrderStatus(order.orderStatus);
+    const nextStatus = explicitStatus
+      ? normalizeOrderStatus(explicitStatus, "")
+      : getStatusFromAction(action, "");
+
+    if (!nextStatus || !ORDER_STATUS_VALUES.includes(nextStatus)) {
+      return res.status(400).json({ message: "Provide a valid status update action." });
+    }
+
+    if (!canTransition(currentStatus, nextStatus)) {
+      return res.status(400).json({
+        message: `Cannot move order from ${statusLabel(currentStatus)} to ${statusLabel(nextStatus)}.`,
+        allowedTransitions: listAllowedTransitions(currentStatus)
+      });
+    }
+
+    order.orderStatus = nextStatus;
+
+    if (nextStatus === "delivered" && order.paymentMethod === "COD" && order.paymentStatus === "PENDING") {
+      order.paymentStatus = "PAID";
+    }
+
+    order.statusTimeline.push(createStatusTimelineEntry(nextStatus));
+    await order.save({ validateModifiedOnly: true });
+
+    const notificationResult = await notifyOrderStatusChange(order.toJSON());
+
+    if (notificationResult?.email) {
+      order.notificationLog.push({
+        status: nextStatus,
+        channel: "email",
+        sent: Boolean(notificationResult.email.sent),
+        details: notificationResult.email.error || notificationResult.email.reason || ""
+      });
+    }
+
+    if (notificationResult?.whatsapp) {
+      order.notificationLog.push({
+        status: nextStatus,
+        channel: "whatsapp",
+        sent: Boolean(notificationResult.whatsapp.sent),
+        details: notificationResult.whatsapp.error || notificationResult.whatsapp.reason || ""
+      });
+    }
+
+    if (Array.isArray(order.notificationLog) && order.notificationLog.length > 0) {
+      await order.save({ validateModifiedOnly: true });
+    }
+
+    return res.json({
+      order,
+      notifications: notificationResult
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(400).json({ message: error.message });
+    }
+    return next(error);
+  }
+});
+
+router.put("/orders/:id", requireAdminAuth, async (req, res, next) => {
+  try {
+    const order = await findOrderByIdentifier(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    const payload = req.body || {};
+
+    if (hasOwn(payload, "customerName")) {
+      const customerName = parseString(payload.customerName);
+      if (!customerName) {
+        return res.status(400).json({ message: "Customer name cannot be empty." });
+      }
+      order.customerName = customerName;
+    }
+
+    if (hasOwn(payload, "phone")) {
+      const phone = normalizePhone(payload.phone);
+      if (!phone) {
+        return res.status(400).json({ message: "Phone cannot be empty." });
+      }
+      order.phone = phone;
+    }
+
+    if (hasOwn(payload, "email")) {
+      const email = parseString(payload.email).toLowerCase();
+      if (!email) {
+        return res.status(400).json({ message: "Email cannot be empty." });
+      }
+      order.email = email;
+    }
+
+    if (hasOwn(payload, "address") && payload.address && typeof payload.address === "object") {
+      const nextAddress = {
+        line1: parseString(payload.address.line1 ?? order.address?.line1),
+        line2: parseString(payload.address.line2 ?? order.address?.line2),
+        city: parseString(payload.address.city ?? order.address?.city),
+        state: parseString(payload.address.state ?? order.address?.state),
+        postalCode: parseString(payload.address.postalCode ?? order.address?.postalCode)
+      };
+
+      if (!nextAddress.line1 || !nextAddress.city || !nextAddress.state || !nextAddress.postalCode) {
+        return res.status(400).json({ message: "Address must include line1, city, state, and postalCode." });
+      }
+
+      order.address = nextAddress;
+    }
+
+    if (hasOwn(payload, "paymentMethod")) {
+      order.paymentMethod = normalizePaymentMethod(payload.paymentMethod, order.paymentMethod);
+    }
+
+    if (hasOwn(payload, "paymentStatus")) {
+      order.paymentStatus = normalizePaymentStatus(payload.paymentStatus, order.paymentStatus);
+    }
+
+    if (hasOwn(payload, "trackingId")) {
+      const trackingId = parseString(payload.trackingId);
+      if (!trackingId) {
+        return res.status(400).json({ message: "Tracking ID cannot be empty." });
+      }
+      order.trackingId = trackingId;
+    }
+
+    if (hasOwn(payload, "expectedDeliveryAt")) {
+      const expectedDeliveryAt = parseDate(payload.expectedDeliveryAt);
+      order.expectedDeliveryAt = expectedDeliveryAt;
+    }
+
+    if (hasOwn(payload, "notes")) {
+      order.notes = parseString(payload.notes);
+    }
+
+    if (hasOwn(payload, "items")) {
+      const items = parseOrderItems(payload.items);
+      const shippingInput = parseNumber(payload.shippingAmount ?? order.shippingAmount);
+      const totals = computeOrderTotals(items, shippingInput);
+
+      order.items = items;
+      order.subtotal = totals.subtotal;
+      order.shippingAmount = totals.shippingAmount;
+      order.totalAmount = totals.totalAmount;
+    }
+
+    if (hasOwn(payload, "orderStatus")) {
+      const nextStatus = normalizeOrderStatus(payload.orderStatus, order.orderStatus);
+
+      if (!canTransition(order.orderStatus, nextStatus)) {
+        return res.status(400).json({
+          message: `Cannot move order from ${statusLabel(order.orderStatus)} to ${statusLabel(nextStatus)}.`,
+          allowedTransitions: listAllowedTransitions(order.orderStatus)
+        });
+      }
+
+      if (nextStatus !== order.orderStatus) {
+        order.orderStatus = nextStatus;
+        order.statusTimeline.push(createStatusTimelineEntry(nextStatus));
+      }
+    }
+
+    await order.save({ validateModifiedOnly: true });
+
+    return res.json({ order });
+  } catch (error) {
+    if (error instanceof Error) {
+      return res.status(400).json({ message: error.message });
+    }
+    return next(error);
+  }
+});
+
+router.get("/orders/:id/invoice", requireAdminAuth, async (req, res, next) => {
+  try {
+    const order = await findOrderByIdentifier(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    const pdfBuffer = await generateInvoicePdf(order);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="invoice-${order.orderId}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/products", requireAdminAuth, async (req, res, next) => {

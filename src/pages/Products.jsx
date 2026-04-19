@@ -44,7 +44,7 @@ function FilterPanel() {
           <h3 className="mb-4 border-b border-hofo-walnut/10 pb-2 text-xs font-semibold uppercase tracking-[0.2em] text-hofo-walnut-dark">
             {block.title}
           </h3>
-          <ul className="space-y-3 text-sm text-hofo-walnut/80">
+          <ul className="space-y-3 text-sm">
             {block.values.map((value) => {
               const optionId = `${block.title.toLowerCase().replace(/\s+/g, "-")}-${value
                 .toLowerCase()
@@ -62,7 +62,7 @@ function FilterPanel() {
                       <span className="h-2.5 w-[5px] rotate-45 border-b-2 border-r-2 border-white opacity-0 transition-opacity duration-200 peer-checked:opacity-100" />
                     </span>
 
-                    <span className="font-medium tracking-[0.01em] text-hofo-walnut/80 transition-colors group-hover:text-hofo-walnut-dark peer-checked:text-hofo-walnut-dark">
+                    <span className="font-medium tracking-[0.01em] text-hofo-walnut-dark transition-colors group-hover:text-hofo-teak peer-checked:text-hofo-teak">
                       {value}
                     </span>
                   </label>

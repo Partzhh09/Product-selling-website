@@ -9,6 +9,7 @@ import {
   Phone,
   UserRound,
 } from "lucide-react";
+import { signupUser } from "@/lib/api";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -23,8 +24,9 @@ export function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
     setSuccess("");
@@ -36,6 +38,13 @@ export function Signup() {
 
     if (!emailRegex.test(email)) {
       setError("Please enter a valid email address.");
+      return;
+    }
+
+    const normalizedPhone = phone.replace(/\D/g, "");
+
+    if (!/^\d{10,15}$/.test(normalizedPhone)) {
+      setError("Please enter a valid phone number.");
       return;
     }
 
@@ -54,7 +63,32 @@ export function Signup() {
       return;
     }
 
-    setSuccess("Sign up submitted. Connect this form to your auth API to create real accounts.");
+    setIsSubmitting(true);
+
+    try {
+      const user = await signupUser({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        phone: normalizedPhone,
+        password
+      });
+
+      setSuccess(`Account created successfully for ${user?.fullName || "you"}. You can sign in now.`);
+      setFullName("");
+      setEmail("");
+      setPhone("");
+      setPassword("");
+      setConfirmPassword("");
+      setAcceptTerms(false);
+
+      window.setTimeout(() => {
+        window.location.assign("/login");
+      }, 700);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create account.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -233,9 +267,10 @@ export function Signup() {
 
               <button
                 type="submit"
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-hofo-forest px-6 text-xs font-semibold uppercase tracking-[0.16em] text-hofo-cream hover:bg-hofo-walnut-dark"
+                disabled={isSubmitting}
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-hofo-forest px-6 text-xs font-semibold uppercase tracking-[0.16em] text-hofo-cream hover:bg-hofo-walnut-dark disabled:cursor-not-allowed disabled:opacity-65"
               >
-                Create Account
+                {isSubmitting ? "Creating Account..." : "Create Account"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </form>

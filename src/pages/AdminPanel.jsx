@@ -23,6 +23,7 @@ import {
   clearStoredAdminToken,
   createAdminProduct,
   deleteAdminProduct,
+  getAdminOrders,
   getProducts,
   getStoredAdminToken,
   setStoredAdminToken,
@@ -191,6 +192,22 @@ function toPayload(form) {
   return payload;
 }
 
+function formatDateTime(value) {
+  const date = new Date(value || 0);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown";
+  }
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 export function AdminPanel() {
   const [adminSecret, setAdminSecret] = useState("");
   const [token, setToken] = useState("");
@@ -198,7 +215,9 @@ export function AdminPanel() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState("");
 
@@ -269,6 +288,9 @@ export function AdminPanel() {
   const dashboardStats = useMemo(() => {
     const totalProducts = products.length;
     const categoryCount = new Set(products.map((item) => item.category).filter(Boolean)).size;
+    const totalOrders = orders.length;
+    const pendingOrders = orders.filter((item) => ["placed", "confirmed"].includes(String(item?.status || ""))).length;
+    const orderRevenue = orders.reduce((sum, item) => sum + Number(item?.pricing?.total || 0), 0);
     const avgPrice = totalProducts
       ? Math.round(products.reduce((sum, item) => sum + Number(item.price || 0), 0) / totalProducts)
       : 0;
@@ -279,10 +301,13 @@ export function AdminPanel() {
     return {
       totalProducts,
       categoryCount,
+      totalOrders,
+      pendingOrders,
+      orderRevenue,
       avgPrice,
       avgDiscount
     };
-  }, [products]);
+  }, [products, orders]);
 
   const previewImage = useMemo(() => {
     const images = parseList(form.imageUrl);
@@ -312,6 +337,27 @@ export function AdminPanel() {
     }
   };
 
+  const loadOrders = async (withLoader = true) => {
+    if (!token) {
+      return;
+    }
+
+    if (withLoader) {
+      setLoadingOrders(true);
+    }
+
+    try {
+      const nextOrders = await getAdminOrders(token);
+      setOrders(nextOrders);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load orders.");
+    } finally {
+      if (withLoader) {
+        setLoadingOrders(false);
+      }
+    }
+  };
+
   useEffect(() => {
     const savedToken = getStoredAdminToken();
     if (savedToken) {
@@ -320,7 +366,12 @@ export function AdminPanel() {
   }, []);
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
     loadProducts();
+    loadOrders();
   }, [token]);
 
   const handleLogin = async (event) => {
@@ -349,6 +400,7 @@ export function AdminPanel() {
     setToken("");
     setEditingId("");
     setProducts([]);
+    setOrders([]);
     setForm(emptyFormState);
     setSearchTerm("");
     setCategoryFilter("All");
@@ -514,17 +566,20 @@ export function AdminPanel() {
             <div>
               <p className="hofo-eyebrow">Admin Dashboard</p>
               <h1 className="mt-2 font-serif text-4xl leading-none text-hofo-walnut-dark md:text-6xl">
-                Full Catalog Control
+                Catalog & Order Control
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-hofo-walnut/72 md:text-base">
-                Manage pricing, variants, specifications, FAQs, and media in one control room.
+                Manage product data and monitor real-time customer orders in one control room.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => loadProducts()}
+                onClick={() => {
+                  loadProducts();
+                  loadOrders();
+                }}
                 className="inline-flex h-10 items-center gap-2 rounded-full border border-hofo-walnut/15 bg-white/80 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-hofo-walnut-dark hover:border-hofo-teak/40 hover:text-hofo-teak"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
@@ -552,7 +607,7 @@ export function AdminPanel() {
         </div>
       </section>
 
-      <section className="section-shell mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="section-shell mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Total Products</p>
           <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.totalProducts}</p>
@@ -571,6 +626,23 @@ export function AdminPanel() {
         <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Avg Discount</p>
           <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.avgDiscount}%</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Total Orders</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.totalOrders}</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Pending Orders</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">{dashboardStats.pendingOrders}</p>
+        </article>
+
+        <article className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_12px_30px_rgba(30,18,10,0.07)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/55">Order Revenue</p>
+          <p className="mt-2 font-serif text-4xl text-hofo-walnut-dark">
+            Rs.{dashboardStats.orderRevenue.toLocaleString("en-IN")}
+          </p>
         </article>
       </section>
 
@@ -950,6 +1022,119 @@ export function AdminPanel() {
                         </button>
                       </div>
                     </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="section-shell mt-10">
+        <div className="rounded-3xl border border-hofo-walnut/10 bg-white/82 p-5 shadow-[0_16px_34px_rgba(30,18,10,0.08)] md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-hofo-walnut/58">Recent Orders</p>
+              <h2 className="mt-2 font-serif text-3xl leading-none text-hofo-walnut-dark md:text-4xl">
+                Customer Checkout Feed
+              </h2>
+              <p className="mt-3 text-sm text-hofo-walnut/72">
+                Orders placed from checkout appear here automatically.
+              </p>
+            </div>
+
+            <span className="inline-flex h-10 items-center rounded-full border border-hofo-walnut/12 bg-white px-4 text-xs font-semibold uppercase tracking-[0.13em] text-hofo-walnut/65">
+              {orders.length} Order{orders.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {loadingOrders ? (
+            <div className="mt-5 rounded-2xl border border-hofo-walnut/10 bg-white/80 p-7 text-center text-sm text-hofo-walnut/70">
+              Loading orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-hofo-walnut/10 bg-white/80 p-7 text-center text-sm text-hofo-walnut/70">
+              No orders yet. Place a test order from checkout to verify the flow.
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4">
+              {orders.slice(0, 30).map((order) => {
+                const customer = order?.customer || {};
+                const items = Array.isArray(order?.items) ? order.items : [];
+                const total = Number(order?.pricing?.total || 0);
+                const subtotal = Number(order?.pricing?.subtotal || 0);
+                const shipping = Number(order?.pricing?.shipping || 0);
+                const itemCount = items.reduce((sum, item) => sum + Number(item?.quantity || 0), 0);
+                const itemSummary = items
+                  .map((item) => `${item?.name || "Item"} x${Number(item?.quantity || 0)}`)
+                  .join(", ");
+                const status = String(order?.status || "placed").toLowerCase();
+                const statusClass = {
+                  placed: "border-amber-200 bg-amber-50 text-amber-800",
+                  confirmed: "border-sky-200 bg-sky-50 text-sky-800",
+                  shipped: "border-indigo-200 bg-indigo-50 text-indigo-800",
+                  delivered: "border-emerald-200 bg-emerald-50 text-emerald-800",
+                  cancelled: "border-red-200 bg-red-50 text-red-700"
+                };
+
+                const address = [
+                  customer?.addressLine1,
+                  customer?.addressLine2,
+                  customer?.city,
+                  customer?.state,
+                  customer?.postalCode
+                ]
+                  .filter(Boolean)
+                  .join(", ");
+
+                return (
+                  <article
+                    key={order?.id || order?.orderNumber || `${order?.createdAt}-${customer?.phone}`}
+                    className="rounded-2xl border border-hofo-walnut/10 bg-white p-4 shadow-[0_10px_24px_rgba(30,18,10,0.06)] md:p-5"
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hofo-walnut/58">
+                          {formatDateTime(order?.createdAt)}
+                        </p>
+                        <h3 className="mt-1 font-serif text-2xl leading-none text-hofo-walnut-dark">
+                          {order?.orderNumber || "Order"}
+                        </h3>
+                        <p className="mt-2 text-sm text-hofo-walnut/72">
+                          {customer?.name || "Customer"} | {customer?.phone || "Phone unavailable"}
+                        </p>
+                        <p className="mt-1 text-sm text-hofo-walnut/68">{customer?.email || "Email unavailable"}</p>
+                        <p className="mt-1 text-sm text-hofo-walnut/68">{address || "Address unavailable"}</p>
+                      </div>
+
+                      <div className="space-y-2 text-left lg:text-right">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                            statusClass[status] || "border-hofo-walnut/15 bg-white text-hofo-walnut-dark"
+                          )}
+                        >
+                          {status}
+                        </span>
+                        <p className="text-sm font-semibold text-hofo-walnut-dark">
+                          {itemCount} Item{itemCount === 1 ? "" : "s"}
+                        </p>
+                        <p className="text-sm text-hofo-walnut/72">Subtotal: Rs.{subtotal.toLocaleString("en-IN")}</p>
+                        <p className="text-sm text-hofo-walnut/72">
+                          Shipping: {shipping === 0 ? "Free" : `Rs.${shipping.toLocaleString("en-IN")}`}
+                        </p>
+                        <p className="text-base font-semibold text-hofo-walnut-dark">Total: Rs.{total.toLocaleString("en-IN")}</p>
+                      </div>
+                    </div>
+
+                    <div className="my-3 soft-divider" />
+
+                    <p className="text-sm text-hofo-walnut/72">{itemSummary || "No items available for this order."}</p>
+                    {order?.notes && (
+                      <p className="mt-2 text-sm text-hofo-walnut/72">
+                        <span className="font-semibold text-hofo-walnut-dark">Note:</span> {order.notes}
+                      </p>
+                    )}
                   </article>
                 );
               })}

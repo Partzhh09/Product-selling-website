@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Cormorant Garamond", ui-serif, Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
 
   --color-hofo-cream: #f7f2e8;
   --color-hofo-beige: #eddcc0;
@@ -17,6 +17,34 @@
 }
 
 @layer base {
+  :root {
+    --page-bg: #f5f1ea;
+    --page-glow-a: rgba(214, 169, 126, 0.18);
+    --page-glow-b: rgba(57, 86, 72, 0.12);
+    --page-glow-c: rgba(200, 136, 74, 0.12);
+    --page-text-primary: #2b1f18;
+    --page-text-secondary: #5f4b3f;
+    --surface-card: rgba(255, 255, 255, 0.8);
+    --surface-card-strong: rgba(255, 255, 255, 0.92);
+    --surface-border: rgba(62, 39, 35, 0.12);
+    --gold-accent: #c8a97e;
+    --wood-strong: #3e2723;
+  }
+
+  html.theme-dark {
+    --page-bg: #1a0f0b;
+    --page-glow-a: rgba(214, 168, 95, 0.16);
+    --page-glow-b: rgba(98, 61, 39, 0.2);
+    --page-glow-c: rgba(122, 79, 48, 0.16);
+    --page-text-primary: #f5ede3;
+    --page-text-secondary: rgba(245, 237, 227, 0.72);
+    --surface-card: rgba(39, 24, 19, 0.68);
+    --surface-card-strong: rgba(47, 29, 24, 0.86);
+    --surface-border: rgba(214, 168, 95, 0.2);
+    --gold-accent: #d6a85f;
+    --wood-strong: #f5ede3;
+  }
+
   *,
   *::before,
   *::after {
@@ -35,11 +63,13 @@
   body {
     margin: 0;
     background:
-      radial-gradient(circle at 8% 4%, rgba(240, 196, 138, 0.24), transparent 26%),
-      radial-gradient(circle at 82% 12%, rgba(47, 75, 60, 0.14), transparent 28%),
-      radial-gradient(circle at 50% 120%, rgba(166, 96, 49, 0.13), transparent 42%),
-      linear-gradient(180deg, #f9f5ec 0%, #f4eee2 100%);
-    @apply text-hofo-walnut-dark font-sans antialiased;
+      radial-gradient(circle at 8% 4%, var(--page-glow-a), transparent 26%),
+      radial-gradient(circle at 82% 12%, var(--page-glow-b), transparent 28%),
+      radial-gradient(circle at 50% 120%, var(--page-glow-c), transparent 42%),
+      linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg) 100%);
+    color: var(--page-text-primary);
+    @apply font-sans antialiased;
+    transition: background-color 420ms ease, color 420ms ease;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -52,7 +82,8 @@
   }
 
   ::selection {
-    @apply bg-hofo-teak text-white;
+    background: color-mix(in oklab, var(--gold-accent) 80%, #ffffff 20%);
+    color: #1a0f0b;
   }
 }
 
@@ -62,13 +93,14 @@
   }
 
   .glass-card {
-    background: linear-gradient(150deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.44));
-    @apply border border-white/50 backdrop-blur-md shadow-[0_18px_40px_rgba(40,22,12,0.08)];
+    background: linear-gradient(150deg, color-mix(in oklab, var(--surface-card) 94%, #ffffff 6%), var(--surface-card));
+    border-color: color-mix(in oklab, var(--surface-border) 76%, #ffffff 24%);
+    @apply border backdrop-blur-md shadow-[0_18px_40px_rgba(40,22,12,0.08)];
   }
 
   .grain-card {
     background:
-      linear-gradient(155deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.72)),
+      linear-gradient(155deg, var(--surface-card-strong), var(--surface-card)),
       repeating-linear-gradient(
         120deg,
         rgba(156, 106, 69, 0.03) 0,
@@ -76,15 +108,23 @@
         transparent 2px,
         transparent 8px
       );
-    @apply border border-hofo-walnut/10 shadow-[0_20px_45px_rgba(30,18,10,0.09)];
+    border-color: var(--surface-border);
+    @apply border shadow-[0_20px_45px_rgba(30,18,10,0.09)];
   }
 
   .hofo-eyebrow {
-    @apply text-[11px] uppercase tracking-[0.32em] font-semibold text-hofo-teak;
+    color: var(--gold-accent);
+    @apply text-[11px] uppercase tracking-[0.32em] font-semibold;
   }
 
   .soft-divider {
-    @apply h-px w-full bg-gradient-to-r from-transparent via-hofo-walnut/20 to-transparent;
+    @apply h-px w-full bg-gradient-to-r from-transparent to-transparent;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--surface-border) 86%, #ffffff 14%),
+      transparent
+    );
   }
 }
 
@@ -131,4 +171,55 @@ html {
 
 .float-gentle {
   animation: floatGentle 8s ease-in-out infinite;
+}
+
+html.theme-dark .text-hofo-walnut-dark {
+  color: #f5ede3 !important;
+}
+
+html.theme-dark .text-hofo-walnut\/72,
+html.theme-dark .text-hofo-walnut\/70,
+html.theme-dark .text-hofo-walnut\/68,
+html.theme-dark .text-hofo-walnut\/65,
+html.theme-dark .text-hofo-walnut\/62,
+html.theme-dark .text-hofo-walnut\/60,
+html.theme-dark .text-hofo-walnut\/58,
+html.theme-dark .text-hofo-walnut\/55,
+html.theme-dark .text-hofo-walnut\/50,
+html.theme-dark .text-hofo-walnut\/40,
+html.theme-dark .text-hofo-walnut\/45 {
+  color: rgba(245, 237, 227, 0.72) !important;
+}
+
+html.theme-dark .border-hofo-walnut\/10,
+html.theme-dark .border-hofo-walnut\/12,
+html.theme-dark .border-hofo-walnut\/14,
+html.theme-dark .border-hofo-walnut\/15,
+html.theme-dark .border-hofo-walnut\/16,
+html.theme-dark .border-hofo-walnut\/18,
+html.theme-dark .border-hofo-walnut\/20 {
+  border-color: rgba(214, 168, 95, 0.2) !important;
+}
+
+html.theme-dark .bg-white,
+html.theme-dark .bg-white\/65,
+html.theme-dark .bg-white\/70,
+html.theme-dark .bg-white\/72,
+html.theme-dark .bg-white\/76,
+html.theme-dark .bg-white\/75,
+html.theme-dark .bg-white\/78,
+html.theme-dark .bg-white\/80,
+html.theme-dark .bg-white\/82,
+html.theme-dark .bg-white\/84,
+html.theme-dark .bg-white\/85,
+html.theme-dark .bg-white\/88,
+html.theme-dark .bg-white\/90,
+html.theme-dark .bg-white\/95 {
+  background-color: rgba(37, 23, 19, 0.72) !important;
+}
+
+html.theme-dark .bg-hofo-cream,
+html.theme-dark .bg-hofo-cream\/90,
+html.theme-dark .bg-hofo-cream\/95 {
+  background-color: rgba(30, 18, 14, 0.86) !important;
 }

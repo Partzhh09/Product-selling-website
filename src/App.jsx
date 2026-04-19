@@ -14,7 +14,10 @@ import { Blog } from "./pages/Blog";
 import { Cart } from "./pages/Cart";
 import { Login } from "./pages/Login";
 import { Signup } from "./pages/Signup";
+import { AdminOrders } from "./pages/AdminOrders";
 import { AdminPanel } from "./pages/AdminPanel";
+import { OrderDetails } from "./pages/OrderDetails";
+import { UserOrders } from "./pages/UserOrders";
 
 export default function App() {
   return (
@@ -22,12 +25,17 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="shop" element={<Products />} />
+          <Route path="collections" element={<Products />} />
           <Route path="products" element={<Products />} />
           <Route path="products/:id" element={<ProductDetail />} />
           <Route path="cart" element={<Cart />} />
           <Route path="login" element={<Login />} />
           <Route path="signup" element={<Signup />} />
-          <Route path="admin" element={<AdminPanel />} />
+          <Route path="admin" element={<AdminOrders />} />
+          <Route path="admin/products" element={<AdminPanel />} />
+          <Route path="my-orders" element={<UserOrders />} />
+          <Route path="my-orders/:orderId" element={<OrderDetails />} />
           <Route path="custom-order" element={<CustomOrder />} />
           <Route path="factory" element={<Factory />} />
           <Route path="blog" element={<Blog />} />

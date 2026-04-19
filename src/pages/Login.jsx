@@ -1,18 +1,22 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import { loginUser } from "@/lib/api";
+import { setStoredUserSession } from "@/lib/session";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function Login() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
     setSuccess("");
@@ -32,7 +36,26 @@ export function Login() {
       return;
     }
 
-    setSuccess("Login submitted. Connect this form to your auth API to complete sign in.");
+    setIsSubmitting(true);
+
+    try {
+      const result = await loginUser({
+        email: email.trim().toLowerCase(),
+        password
+      });
+
+      setStoredUserSession(result, { persistent: rememberMe });
+
+      setSuccess(`Welcome back, ${result?.user?.fullName || "member"}. Login successful.`);
+
+      window.setTimeout(() => {
+        navigate("/my-orders");
+      }, 650);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Login failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -151,9 +174,10 @@ export function Login() {
 
               <button
                 type="submit"
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-hofo-walnut-dark px-6 text-xs font-semibold uppercase tracking-[0.16em] text-hofo-cream hover:bg-hofo-teak"
+                disabled={isSubmitting}
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-hofo-walnut-dark px-6 text-xs font-semibold uppercase tracking-[0.16em] text-hofo-cream hover:bg-hofo-teak disabled:cursor-not-allowed disabled:opacity-65"
               >
-                Log In
+                {isSubmitting ? "Signing In..." : "Log In"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </form>
