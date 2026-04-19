@@ -5,15 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\" \"npm run dev:admin-server\"",
-    "dev:client": "vite --port=3000 --host=0.0.0.0",
+    "dev:client": "vite --config frontend/vite.config.ts --port=3000 --host=0.0.0.0",
     "dev:server": "node --watch backend/server.js",
     "dev:admin-server": "node --watch backend/adminServer.js",
     "server": "node backend/server.js",
     "admin-server": "node backend/adminServer.js",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "build": "vite build --config frontend/vite.config.ts",
+    "preview": "vite preview --config frontend/vite.config.ts",
+    "clean": "rm -rf dist frontend/dist",
+    "lint": "tsc --noEmit -p frontend/tsconfig.json"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
